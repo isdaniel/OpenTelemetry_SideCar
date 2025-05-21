@@ -17,7 +17,7 @@ var countGreetings = greeterMeter.CreateCounter<int>("greetings.count", descript
 // Custom ActivitySource for the application
 var greeterActivitySource = new ActivitySource("OTLP.Example");
 
-var tracingOtlpEndpoint = "http://localhost:4317/";
+var tracingOtlpEndpoint = "http://otel-collector:4317/";
 var otel = builder.Services.AddOpenTelemetry();
 
 // Configure OpenTelemetry Resources with the application name
@@ -25,43 +25,40 @@ otel.ConfigureResource(resource => resource
     .AddService(serviceName: builder.Environment.ApplicationName));
 
 // Add Metrics for ASP.NET Core and our custom metrics and export to Prometheus
-otel.WithMetrics(metrics => metrics
-    // Metrics provider from OpenTelemetry
-    .AddAspNetCoreInstrumentation()
-    .AddMeter(greeterMeter.Name)
-    .AddMeter("Microsoft.AspNetCore.Hosting")
-    .AddMeter("Microsoft.AspNetCore.Server.Kestrel")
-    .AddMeter("System.Net.Http")
-    .AddMeter("System.Net.NameResolution")
-    .AddPrometheusExporter());
+otel.WithMetrics(metricsProviderBuilder =>
+{
+    metricsProviderBuilder
+        .AddMeter(greeterMeter.Name)
+        .AddMeter("Microsoft.AspNetCore.Hosting")
+        .AddMeter("Microsoft.AspNetCore.Server.Kestrel")
+        .AddMeter("System.Net.Http")
+        .AddMeter("System.Net.NameResolution")
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddOtlpExporter(otlpOptions =>
+        {
+            otlpOptions.Endpoint = new Uri(tracingOtlpEndpoint);
+        });
+});
 
-// Add Tracing for ASP.NET Core and our custom ActivitySource and export to Jaeger
+
 otel.WithTracing(tracing =>
 {
     tracing.AddAspNetCoreInstrumentation();
     tracing.AddHttpClientInstrumentation();
     tracing.AddSource(greeterActivitySource.Name);
-    if (tracingOtlpEndpoint != null)
+    tracing.AddOtlpExporter(otlpOptions =>
     {
-        tracing.AddOtlpExporter(otlpOptions =>
-        {
-            otlpOptions.Endpoint = new Uri(tracingOtlpEndpoint);
-        });
-    }
-    else
-    {
-        tracing.AddConsoleExporter();
-    }
+        otlpOptions.Endpoint = new Uri(tracingOtlpEndpoint);
+    });
 });
 
 
 var app = builder.Build();
-app.MapPrometheusScrapingEndpoint();
 
 app.MapGet("/", SendGreeting);
 app.MapGet("/NestedGreeting", SendNestedGreeting);
 app.Run();
-
 
 async Task<string> SendGreeting(ILogger<Program> logger)
 {

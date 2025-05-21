@@ -12,12 +12,7 @@ processors:
 exporters:
   prometheus:
     endpoint: "0.0.0.0:8889"
-    namespace: "otel"
-    send_timestamps: true
-    metric_expiration: 60m
-    resource_to_telemetry_conversion:
-      enabled: true
-  otlp:
+  otlp/jaeger:
     endpoint: jaeger:4317
     tls:
       insecure: true
@@ -26,10 +21,10 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch]
-      exporters: [otlp]
+      processors: []
+      exporters: [otlp/jaeger]
     metrics:
       receivers: [otlp]
-      processors: [batch]
+      processors: []
       exporters: [prometheus]
 
