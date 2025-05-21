@@ -17,7 +17,6 @@ var countGreetings = greeterMeter.CreateCounter<int>("greetings.count", descript
 // Custom ActivitySource for the application
 var greeterActivitySource = new ActivitySource("OTLP.Example");
 
-var tracingOtlpEndpoint = "http://otel-collector:4317/";
 var otel = builder.Services.AddOpenTelemetry();
 
 // Configure OpenTelemetry Resources with the application name
@@ -35,10 +34,7 @@ otel.WithMetrics(metricsProviderBuilder =>
         .AddMeter("System.Net.NameResolution")
         .AddAspNetCoreInstrumentation()
         .AddHttpClientInstrumentation()
-        .AddOtlpExporter(otlpOptions =>
-        {
-            otlpOptions.Endpoint = new Uri(tracingOtlpEndpoint);
-        });
+        .AddOtlpExporter();
 });
 
 
@@ -47,10 +43,7 @@ otel.WithTracing(tracing =>
     tracing.AddAspNetCoreInstrumentation();
     tracing.AddHttpClientInstrumentation();
     tracing.AddSource(greeterActivitySource.Name);
-    tracing.AddOtlpExporter(otlpOptions =>
-    {
-        otlpOptions.Endpoint = new Uri(tracingOtlpEndpoint);
-    });
+    tracing.AddOtlpExporter();
 });
 
 
