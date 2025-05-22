@@ -12,6 +12,18 @@ services:
     depends_on:
       - otel-collector
 
+  rust-web:
+    build:
+      context: ./rust_web
+      dockerfile: Dockerfile
+    ports:
+      - "3333:3333"
+    environment:
+      - RUST_LOG=debug
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    depends_on:
+      - otel-collector
+
   otel-collector:
     image: otel/opentelemetry-collector:latest
     command: ["--config=/etc/otel-collector-config.yaml"]
