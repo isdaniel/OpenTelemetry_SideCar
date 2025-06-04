@@ -3,15 +3,13 @@ use axum::{
     routing::get,
     Router,
 };
-use opentelemetry::{global, KeyValue};
-use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::{ SdkTracerProvider}, Resource};
-use opentelemetry_otlp::{ ExporterBuildError, MetricExporter, Protocol, SpanExporter, WithExportConfig};
+use opentelemetry::{global::{self, BoxedTracer}, trace::{Span, TraceContextExt, Tracer}, KeyValue};
+use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::{ BatchSpanProcessor, SdkTracerProvider}, Resource};
+use opentelemetry_otlp::{ ExporterBuildError, MetricExporter, SpanExporter, WithExportConfig};
 use std::{error::Error, net::SocketAddr, sync::{Arc, OnceLock}};
-
-
-#[derive(Clone)]
-struct AppState {
-    counter: opentelemetry::metrics::Counter<u64>
+struct AppState{
+    counter: opentelemetry::metrics::Counter<u64>,
+    tracer : BoxedTracer
 }
 
 fn get_resource() -> Resource {
@@ -27,20 +25,20 @@ fn get_resource() -> Resource {
 
 fn init_traces() -> Result<SdkTracerProvider, ExporterBuildError>  {
     let exporter = SpanExporter::builder()
-        .with_http()
-        .with_protocol(Protocol::HttpBinary) //can be changed to `Protocol::HttpJson` to export in JSON format
+        .with_tonic()
         .build()?;
 
+    let processor = BatchSpanProcessor::builder(exporter).build();
     Ok(SdkTracerProvider::builder()
-        .with_batch_exporter(exporter)
+        .with_span_processor(processor)
         .with_resource(get_resource())
         .build())
 }
 
+
 fn init_metrics() -> Result<SdkMeterProvider, ExporterBuildError> {
     let exporter = MetricExporter::builder()
-        .with_http()
-        .with_protocol(Protocol::HttpBinary) //can be changed to `Protocol::HttpJson` to export in JSON format
+        .with_tonic()
         .build()?;
 
     Ok(SdkMeterProvider::builder()
@@ -49,9 +47,11 @@ fn init_metrics() -> Result<SdkMeterProvider, ExporterBuildError> {
     .build())
 }
 async fn root(State(state): State<Arc<AppState>>) -> &'static str {
-
     state.counter.add(1, &[KeyValue::new("route", "/")]);
-    info!(target: "my-target", "hello from {}. My price is {}. I am also inside a Span!", "banana", 2.99);
+    state.tracer.in_span("doing_work", |cx| {
+        let span = cx.span();
+        span.add_event("root", vec![KeyValue::new("route", "/")]);
+    });
 
     "Hello, World! Rust."
 }
@@ -59,20 +59,24 @@ async fn root(State(state): State<Arc<AppState>>) -> &'static str {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // Initialize tracer
-    // let tracer_provider = init_traces()?;
-    // global::set_tracer_provider(tracer_provider.clone());
+    let tracer_provider = init_traces()?;
+    global::set_tracer_provider(tracer_provider.clone());
 
     // Initialize meter provider
     let meter_provider = init_metrics()?;
     global::set_meter_provider(meter_provider.clone());
 
-    let meter = global::meter("rust-web-app-metrics");
+    let tracer = global::tracer("rustweb_tracer");
+    let meter = global::meter("rustweb_meter");
+
 
     let counter = meter
             .u64_counter("http_requests_total")
-            .with_description("a simple counter for demo purposes.").build();
+            .with_description("a simple counter for demo purposes.")
+            .with_unit("my_unit")
+            .build();
 
-    let app_state = Arc::new(AppState { counter });
+    let app_state = Arc::new(AppState { counter : counter, tracer : tracer });
 
     // Build Axum app
     let app = Router::new()
